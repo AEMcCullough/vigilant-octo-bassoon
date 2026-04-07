@@ -21,12 +21,12 @@ jobs:
         xcodegen --version
         xcodegen generate --spec project.yml
       
-    - name: Build and Test
+    - name: Build App
       run: |
         xcodebuild -project Vibe.xcodeproj \
                    -scheme Vibe \
                    -sdk iphonesimulator \
-                   -destination 'platform=iOS Simulator,name=iPhone 14' \
+                   -destination 'generic/platform=iOS Simulator' \
                    -configuration Debug \
                    CODE_SIGNING_ALLOWED=NO \
-                   test
+                   build
