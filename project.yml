@@ -23,7 +23,7 @@ targets:
       - target: Vibe
 
   VibeUITests:
-    type: bundle.ui-testing-test
+    type: bundle.ui-testing
     platform: iOS
     sources: [VibeUITests]
     dependencies:
