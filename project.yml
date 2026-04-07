@@ -14,9 +14,10 @@ targets:
         ENABLE_PREVIEWS: YES
         SWIFT_VERSION: "5.10"
         GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 1.0
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: iPhone
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
   VibeTests:
     type: bundle.unit-test
