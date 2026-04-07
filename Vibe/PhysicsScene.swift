@@ -31,7 +31,14 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         if intensity > 0.1 {
             let sharpness: Float = currentMaterial == .glass ? 0.9 : (currentMaterial == .sand ? 0.3 : 0.5)
             haptics?.playImpact(intensity: intensity, sharpness: sharpness)
-            AudioManager.shared.playSound(named: currentMaterial.rawValue.lowercased() + "_impact", volume: intensity)
+            
+            let soundName: String
+            switch currentMaterial {
+            case .mercury: soundName = "mercury_slosh"
+            case .glass: soundName = "glass_impact"
+            case .sand: soundName = "sand_shift"
+            }
+            AudioManager.shared.playSound(named: soundName, volume: intensity * 0.5)
         }
     }
     
@@ -79,9 +86,9 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
             let velocity = touch.previousLocation(in: self).distance(to: location)
             if velocity > 5 {
                 haptics?.playImpact(intensity: Float(min(velocity / 50.0, 0.4)), sharpness: 0.2)
-                if currentMaterial == .sand {
-                    AudioManager.shared.playSound(named: "sand_grind", volume: 0.2)
-                }
+                
+                let soundName = currentMaterial == .glass ? "glass_crumble" : (currentMaterial == .mercury ? "mercury_slosh" : "sand_shift")
+                AudioManager.shared.playSound(named: soundName, volume: 0.15)
             }
         }
     }
