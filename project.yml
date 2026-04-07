@@ -6,7 +6,8 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
-    sources: [Vibe]
+    sources: 
+      - path: Vibe
     settings:
       base:
         INFOPLIST_FILE: Vibe/Info.plist
