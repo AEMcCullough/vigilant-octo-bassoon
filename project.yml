@@ -5,7 +5,7 @@ targets:
   Vibe:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "16.0"
     sources: 
       - path: Vibe
     settings:
@@ -13,7 +13,7 @@ targets:
         INFOPLIST_FILE: Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.yourname.vibe
         ENABLE_PREVIEWS: YES
-        SWIFT_VERSION: 6.0
+        SWIFT_VERSION: 5.10
 
   VibeTests:
     type: bundle.unit-test
