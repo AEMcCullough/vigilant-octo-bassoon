@@ -60,7 +60,7 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     
-    override func reset() {
+    func reset() {
         removeAllChildren()
         metaballContainer.removeAllChildren()
         addChild(metaballContainer)
@@ -183,12 +183,6 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     
-    func reset() {
-        removeAllChildren()
-        metaballContainer.removeAllChildren()
-        addChild(metaballContainer)
-        setupContainment()
-    }
 }
 
 extension CGPoint {
