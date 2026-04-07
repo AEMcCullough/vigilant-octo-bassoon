@@ -38,7 +38,8 @@ struct ContentView: View {
     }
     
     private func makeScene() -> SKScene {
-        let scene = PhysicsScene(size: UIScreen.main.bounds.size)
+        // Use a safe default size; scaleMode handles the rest
+        let scene = PhysicsScene(size: CGSize(width: 400, height: 800))
         scene.scaleMode = .resizeFill
         scene.haptics = haptics
         return scene
