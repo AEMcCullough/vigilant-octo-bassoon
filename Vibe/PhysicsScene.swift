@@ -1,6 +1,7 @@
 import SpriteKit
 import UIKit
 import CoreMotion
+import Combine
 
 class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     var haptics: HapticsManager?

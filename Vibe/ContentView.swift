@@ -1,5 +1,6 @@
 import SwiftUI
 import SpriteKit
+import Combine
 
 struct ContentView: View {
     @StateObject private var haptics = HapticsManager()
