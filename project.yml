@@ -10,7 +10,7 @@ targets:
       - path: Vibe
     settings:
       base:
-        INFOPLIST_FILE: Vibe/Info.plist
+        INFOPLIST_FILE: Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.yourname.vibe
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_PREVIEWS: YES
