@@ -1,3 +1,7 @@
+import SpriteKit
+import UIKit
+import CoreMotion
+
 class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     var haptics: HapticsManager?
     @Published var currentMaterial: VibeMaterial = .mercury

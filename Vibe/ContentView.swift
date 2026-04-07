@@ -1,3 +1,6 @@
+import SwiftUI
+import SpriteKit
+
 struct ContentView: View {
     @StateObject private var haptics = HapticsManager()
     @State private var selectedMaterial: VibeMaterial = .mercury

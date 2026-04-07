@@ -1,3 +1,6 @@
+import CoreHaptics
+import Foundation
+
 class HapticsManager: ObservableObject {
     private var engine: CHHapticEngine?
     private var continuousPlayer: CHHapticAdvancedPatternPlayer?
