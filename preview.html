@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VIBE Preview</title>
+    <style>
+        :root {
+            --bg: #050505;
+            --mercury: linear-gradient(135deg, #e0e0e0 0%, #888 50%, #444 100%);
+            --glow: rgba(200, 200, 255, 0.2);
+        }
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background: var(--bg);
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        #canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            filter: contrast(20) blur(10px);
+            background: black;
+        }
+        .title {
+            position: relative;
+            font-size: 14px;
+            letter-spacing: 5px;
+            opacity: 0.3;
+            z-index: 10;
+            margin-top: 50px;
+        }
+        .instruction {
+            position: absolute;
+            bottom: 50px;
+            font-size: 12px;
+            opacity: 0.5;
+            z-index: 10;
+        }
+        .particle {
+            position: absolute;
+            width: 60px; height: 60px;
+            background: white;
+            border-radius: 50%;
+            pointer-events: none;
+            transition: transform 0.1s linear;
+        }
+    </style>
+</head>
+<body>
+    <div class="title">VIBE PREVIEW</div>
+    <div id="canvas"></div>
+    <div class="instruction">TOUCH TO FEEL THE MERCURY</div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const particles = [];
+
+        function createParticle(x, y) {
+            const p = document.createElement('div');
+            p.className = 'particle';
+            p.style.left = (x - 30) + 'px';
+            p.style.top = (y - 30) + 'px';
+            canvas.appendChild(p);
+            
+            const particle = {
+                el: p,
+                x: x,
+                y: y,
+                vx: (Math.random() - 0.5) * 5,
+                vy: (Math.random() - 0.5) * 5,
+                life: 1
+            };
+            particles.push(particle);
+        }
+
+        function update() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.01;
+                p.el.style.left = (p.x - 30) + 'px';
+                p.el.style.top = (p.y - 30) + 'px';
+                p.el.style.opacity = p.life;
+                p.el.style.transform = `scale(${p.life})`;
+                
+                if (p.life <= 0) {
+                    canvas.removeChild(p.el);
+                    particles.splice(i, 1);
+                }
+            }
+            requestAnimationFrame(update);
+        }
+
+        window.addEventListener('touchstart', (e) => {
+            handleTouch(e.touches[0].clientX, e.touches[0].clientY);
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            handleTouch(e.touches[0].clientX, e.touches[0].clientY);
+            e.preventDefault();
+        }, { passive: false });
+
+        window.addEventListener('mousedown', (e) => {
+            handleTouch(e.clientX, e.clientY);
+        });
+
+        function handleTouch(x, y) {
+            for (let i = 0; i < 3; i++) {
+                createParticle(x, y);
+            }
+            // Concept haptic (if browser supports)
+            if (navigator.vibrate) {
+                navigator.vibrate(10);
+            }
+        }
+
+        update();
+    </script>
+</body>
+</html>

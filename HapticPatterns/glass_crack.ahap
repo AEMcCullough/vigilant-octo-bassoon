@@ -1,0 +1,29 @@
+{
+    "Version": 1.0,
+    "Metadata": {
+        "Project": "Vibe",
+        "Description": "Sharp, sudden crack"
+    },
+    "Pattern": [
+        {
+            "Event": {
+                "Time": 0.0,
+                "EventType": "HapticTransient",
+                "EventParameters": [
+                    { "ParameterID": "HapticIntensity", "ParameterValue": 1.0 },
+                    { "ParameterID": "HapticSharpness", "ParameterValue": 0.8 }
+                ]
+            }
+        },
+        {
+            "Event": {
+                "Time": 0.05,
+                "EventType": "HapticTransient",
+                "EventParameters": [
+                    { "ParameterID": "HapticIntensity", "ParameterValue": 0.6 },
+                    { "ParameterID": "HapticSharpness", "ParameterValue": 0.5 }
+                ]
+            }
+        }
+    ]
+}

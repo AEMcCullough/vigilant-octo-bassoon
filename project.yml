@@ -1,0 +1,30 @@
+name: Vibe
+options:
+  bundleIdPrefix: com.yourname
+targets:
+  Vibe:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources: [Vibe]
+    settings:
+      base:
+        INFOPLIST_FILE: Vibe/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.yourname.vibe
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_PREVIEWS: YES
+        SWIFT_VERSION: 6.0
+
+  VibeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [VibeTests]
+    dependencies:
+      - target: Vibe
+
+  VibeUITests:
+    type: bundle.ui-testing-test
+    platform: iOS
+    sources: [VibeUITests]
+    dependencies:
+      - target: Vibe
