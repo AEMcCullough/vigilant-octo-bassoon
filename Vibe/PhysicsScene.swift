@@ -6,6 +6,7 @@ import Combine
 class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     var haptics: HapticsManager?
     @Published var currentMaterial: VibeMaterial = .mercury
+    var isSandboxMode: Bool = false
     
     private let motionManager = CMMotionManager()
     private var metaballContainer = MetaballNode()
@@ -44,10 +45,11 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     
     func fillSandbox() {
         reset()
+        isSandboxMode = true
         let size = self.size
-        let spacing: CGFloat = currentMaterial == .sand ? 12 : 25
+        let spacing: CGFloat = currentMaterial == .sand ? 15 : 25
         let cols = Int(size.width / spacing)
-        let rows = Int(size.height / spacing / 2) // Fill bottom half
+        let rows = Int(size.height / spacing / 2.5) // Fill bottom portion
         
         for r in 0..<rows {
             for c in 0..<cols {
@@ -56,6 +58,14 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
                 spawnGlobule(at: CGPoint(x: x, y: y), isTemporary: false)
             }
         }
+    }
+    
+    override func reset() {
+        removeAllChildren()
+        metaballContainer.removeAllChildren()
+        addChild(metaballContainer)
+        setupContainment()
+        isSandboxMode = false
     }
     
     private func setupMotion() {
@@ -81,30 +91,56 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
             let location = touch.location(in: self)
-            spawnGlobule(at: location, isTemporary: true)
+            let previousLocation = touch.previousLocation(in: self)
+            let velocity = previousLocation.distance(to: location)
             
-            let velocity = touch.previousLocation(in: self).distance(to: location)
+            if isSandboxMode {
+                // Manipulate existing materials (apply force to nodes near touch)
+                let touchRadius: CGFloat = 40.0
+                let nodesNearTouch = self.nodes(at: location)
+                
+                for node in nodesNearTouch {
+                    if let physicsBody = node.physicsBody {
+                        let dx = location.x - previousLocation.x
+                        let dy = location.y - previousLocation.y
+                        physicsBody.applyForce(CGVector(dx: dx * 2.0, dy: dy * 2.0))
+                    }
+                }
+            } else {
+                // Classic mode: spawn new material
+                spawnGlobule(at: location, isTemporary: true)
+            }
+            
             if velocity > 5 {
-                haptics?.playImpact(intensity: Float(min(velocity / 50.0, 0.4)), sharpness: 0.2)
+                haptics?.playImpact(intensity: Float(min(velocity / 50.0, 0.3)), sharpness: 0.1)
                 
                 let soundName = currentMaterial == .glass ? "glass_crumble" : (currentMaterial == .mercury ? "mercury_slosh" : "sand_shift")
-                AudioManager.shared.playSound(named: soundName, volume: 0.15)
+                AudioManager.shared.playSound(named: soundName, volume: 0.1)
             }
         }
     }
     
     func spawnGlobule(at point: CGPoint, isTemporary: Bool) {
         let radius: CGFloat
+        let textureName: String
+        
         switch currentMaterial {
-        case .mercury: radius = CGFloat.random(in: 10...18)
-        case .glass: radius = CGFloat.random(in: 8...14)
-        case .sand: radius = CGFloat.random(in: 3...6)
+        case .mercury: 
+            radius = CGFloat.random(in: 10...18)
+            textureName = "mercury_texture"
+        case .glass: 
+            radius = CGFloat.random(in: 8...14)
+            textureName = "glass_texture"
+        case .sand: 
+            radius = CGFloat.random(in: 3...6)
+            textureName = "sand_texture"
         }
         
-        let globule = SKShapeNode(circleOfRadius: radius)
+        let globule = SKSpriteNode(imageNamed: textureName)
+        globule.size = CGSize(width: radius * 2, height: radius * 2)
         globule.position = point
         
-        setupPhysics(for: globule)
+        setupPhysics(for: globule, radius: radius)
         
         if currentMaterial == .mercury {
             metaballContainer.addChild(globule)
@@ -121,30 +157,26 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     
-    private func setupPhysics(for node: SKShapeNode) {
-        let radius = node.frame.size.width / 2
+    private func setupPhysics(for node: SKSpriteNode, radius: CGFloat) {
         node.physicsBody = SKPhysicsBody(circleOfRadius: radius)
         node.physicsBody?.categoryBitMask = 1
         node.physicsBody?.contactTestBitMask = 1
-        
-        node.strokeColor = .white.withAlphaComponent(0.2)
-        node.lineWidth = 0.5
+        // Performance optimization: prevent continuous precise collision checks for huge particle counts
+        node.physicsBody?.usesPreciseCollisionDetection = false
         
         switch currentMaterial {
         case .mercury:
-            node.fillColor = .gray
             node.physicsBody?.restitution = 0.1
             node.physicsBody?.friction = 0.01
             node.physicsBody?.mass = 0.5
-            node.alpha = 0.9
+            // High alpha to ensure metaball threshold works
+            node.alpha = 1.0
         case .glass:
-            node.fillColor = .cyan.withAlphaComponent(0.15)
             node.physicsBody?.restitution = 0.6
             node.physicsBody?.friction = 0.2
             node.physicsBody?.mass = 0.1
+            node.alpha = 0.8 // slight translucency
         case .sand:
-            let colors: [UIColor] = [.brown, .orange, .yellow, .gray]
-            node.fillColor = colors.randomElement()?.withAlphaComponent(0.8) ?? .orange
             node.physicsBody?.restitution = 0.0
             node.physicsBody?.friction = 1.0
             node.physicsBody?.mass = 0.02
