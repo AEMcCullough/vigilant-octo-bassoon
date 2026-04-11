@@ -11,6 +11,10 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     private let motionManager = CMMotionManager()
     private var metaballContainer = MetaballNode()
     
+    // Tilt smoothing parameters
+    private var lastGravity: CGVector = .zero
+    private let tiltSmoothing: CGFloat = 0.2
+    
     override func didMove(to view: SKView) {
         backgroundColor = .black
         physicsWorld.gravity = .zero
@@ -27,12 +31,20 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     
     func didBegin(_ contact: SKPhysicsContact) {
         let velocity = contact.collisionImpulse
-        let intensity = min(Float(velocity / 800.0), 1.0)
+        let tuning = currentMaterial.tuning
+        let intensity = min(Float(velocity / 1200.0), 1.0)
         
-        if intensity > 0.1 {
-            // Keep a very slight haptic feel for hard physics collisions, but NO clunky audio.
-            let sharpness: Float = currentMaterial == .glass ? 0.9 : (currentMaterial == .sand ? 0.3 : 0.5)
-            haptics?.playImpact(intensity: intensity * 0.2, sharpness: sharpness)
+        if intensity > 0.05 {
+            // Adaptive haptics based on material identity
+            haptics?.playImpact(intensity: intensity * tuning.impactPower, sharpness: tuning.hapticSharpness)
+            
+            // Subtle collision audio if it's a hard hit
+            if intensity > 0.4 {
+                let name = currentMaterial == .glass ? "glass_impact" : (currentMaterial == .mercury ? "mercury_impact" : nil)
+                if let sound = name {
+                    AudioManager.shared.playSound(named: sound, volume: intensity * 0.3)
+                }
+            }
         }
     }
     
@@ -40,13 +52,14 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         reset()
         isSandboxMode = true
         let size = self.size
-        let spacing: CGFloat = currentMaterial == .sand ? 15 : 25
+        let tuning = currentMaterial.tuning
+        let spacing: CGFloat = currentMaterial == .sand ? 12 : 24
         let cols = Int(size.width / spacing)
-        let rows = Int(size.height / spacing / 2.5) // Fill bottom portion
+        let rows = Int(size.height / spacing / 2.2)
         
         for r in 0..<rows {
             for c in 0..<cols {
-                let x = CGFloat(c) * spacing + spacing/2
+                let x = CGFloat(c) * spacing + spacing/2 + CGFloat.random(in: -2...2)
                 let y = CGFloat(r) * spacing + spacing/2
                 spawnGlobule(at: CGPoint(x: x, y: y), isTemporary: false)
             }
@@ -67,18 +80,20 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         motionManager.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
             guard let self = self, let acceleration = data?.acceleration else { return }
             
-            // Adjust the gravitational pull multiplier based on the material's real-world density
-            let strength: CGFloat
-            switch self.currentMaterial {
-            case .mercury: strength = 60.0 // Very heavy, reacts strongly to tilt
-            case .glass: strength = 25.0  // Lighter
-            case .sand: strength = 35.0   // Standard
-            }
+            let strength: CGFloat = self.currentMaterial == .mercury ? 75.0 : (self.currentMaterial == .sand ? 45.0 : 30.0)
             
-            self.physicsWorld.gravity = CGVector(
+            let targetGravity = CGVector(
                 dx: CGFloat(acceleration.x) * strength,
                 dy: CGFloat(acceleration.y) * strength
             )
+            
+            // Low-pass filter for premium tilt stability
+            self.lastGravity = CGVector(
+                dx: self.lastGravity.dx * (1.0 - self.tiltSmoothing) + targetGravity.dx * self.tiltSmoothing,
+                dy: self.lastGravity.dy * (1.0 - self.tiltSmoothing) + targetGravity.dy * self.tiltSmoothing
+            )
+            
+            self.physicsWorld.gravity = self.lastGravity
         }
     }
     
@@ -98,142 +113,121 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     }
     
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        AudioManager.shared.updateLoop(named: getLoopName(), intensity: 0.0)
+        AudioManager.shared.updateLoop(named: currentMaterial.tuning.loopName, intensity: 0.0)
     }
     
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        AudioManager.shared.updateLoop(named: getLoopName(), intensity: 0.0)
+        AudioManager.shared.updateLoop(named: currentMaterial.tuning.loopName, intensity: 0.0)
     }
     
     private func handleTouches(_ touches: Set<UITouch>, isMoving: Bool) {
-        var totalVelocity: CGFloat = 0.0
+        var totalMotionIntensity: CGFloat = 0.0
+        let tuning = currentMaterial.tuning
         
         for touch in touches {
             let location = touch.location(in: self)
             let previousLocation = touch.previousLocation(in: self)
+            let velocity = previousLocation.distance(to: location)
             
             if isMoving {
-                totalVelocity += previousLocation.distance(to: location)
+                totalMotionIntensity += velocity
             }
             
             if isSandboxMode {
-                // Manipulate existing materials (apply force to nodes near touch)
-                let nodesNearTouch = self.nodes(at: location)
-                for node in nodesNearTouch {
-                    if let physicsBody = node.physicsBody {
-                        let dx = location.x - previousLocation.x
-                        let dy = location.y - previousLocation.y
-                        physicsBody.applyForce(CGVector(dx: dx * 2.0, dy: dy * 2.0))
+                // PREMIUM STIRRING LOGIC: Apply forces to nearby nodes based on agitation
+                let affectedNodes = self.nodes(at: location).filter { $0.physicsBody != nil }
+                
+                for node in affectedNodes {
+                    if let pb = node.physicsBody {
+                        let dx = (location.x - previousLocation.x) * 4.0
+                        let dy = (location.y - previousLocation.y) * 4.0
+                        pb.applyImpulse(CGVector(dx: dx, dy: dy))
+                        
+                        // Glass fracturing: Small chance to spawn a tiny shard if agitated quickly
+                        if currentMaterial == .glass && velocity > 20.0 && CGFloat.random(in: 0...1) > 0.95 {
+                            spawnGlobule(at: node.position, isTemporary: true)
+                            haptics?.playPattern(named: "glass_crack")
+                        }
                     }
                 }
             } else {
-                // Classic mode: paintbrush spawn
+                // PAINTBRUSH MODE
                 spawnGlobule(at: location, isTemporary: true)
             }
         }
         
-        if isMoving && totalVelocity > 2 {
-            let intensity = Float(min(totalVelocity / 100.0, 1.0))
-            haptics?.playImpact(intensity: intensity * 0.5, sharpness: 0.1)
-            AudioManager.shared.updateLoop(named: getLoopName(), intensity: intensity)
-        }
-    }
-    
-    private func getLoopName() -> String {
-        switch currentMaterial {
-        case .mercury: return "mercury_slosh"
-        case .glass: return "glass_crumble"
-        case .sand: return "sand_shift"
+        if isMoving && totalMotionIntensity > 1.0 {
+            let intensity = Float(min(totalMotionIntensity / 80.0, 1.0))
+            haptics?.playImpact(intensity: intensity * 0.4, sharpness: tuning.hapticSharpness)
+            AudioManager.shared.updateLoop(named: tuning.loopName, intensity: intensity)
         }
     }
     
     func spawnGlobule(at point: CGPoint, isTemporary: Bool) {
-        let radius: CGFloat
-        let globule: SKShapeNode
+        let tuning = currentMaterial.tuning
+        let radius = CGFloat.random(in: tuning.particleSize)
+        let node: SKNode
         
         switch currentMaterial {
-        case .mercury: 
-            radius = CGFloat.random(in: 12...16)
-            globule = SKShapeNode(circleOfRadius: radius)
-            // Metallic silver styling
-            globule.fillColor = UIColor(white: 0.85, alpha: 1.0)
+        case .mercury:
+            let globule = SKShapeNode(circleOfRadius: radius)
+            globule.fillColor = tuning.baseColor
             globule.strokeColor = .clear
-        case .glass: 
-            // Procedural "shard" aesthetics using varying sizes and additive blending
-            radius = CGFloat.random(in: 6...12)
-            globule = SKShapeNode(rectOf: CGSize(width: radius * 2, height: radius))
-            globule.fillColor = .cyan.withAlphaComponent(0.25)
-            globule.strokeColor = .white.withAlphaComponent(0.6)
-            globule.lineWidth = 1.0
-            globule.blendMode = .add // Gives a sparkling, refractive look when overlapping
-            globule.zRotation = CGFloat.random(in: 0...CGFloat.pi*2)
-        case .sand: 
-            // Dense, organic granular clusters
-            radius = CGFloat.random(in: 2...4.5)
-            globule = SKShapeNode(circleOfRadius: radius)
-            let colors: [UIColor] = [
-                UIColor(red: 0.8, green: 0.7, blue: 0.5, alpha: 1.0), // Tan
-                UIColor(red: 0.6, green: 0.5, blue: 0.4, alpha: 1.0), // Brown
-                UIColor(red: 0.9, green: 0.8, blue: 0.6, alpha: 1.0)  // Light Sand
-            ]
-            globule.fillColor = colors.randomElement()!
-            globule.strokeColor = .clear
+            node = globule
+            metaballContainer.addChild(node)
+        case .glass:
+            let sprite = SKSpriteNode(imageNamed: "glass_texture.png")
+            sprite.size = CGSize(width: radius * 3, height: radius * 1.5)
+            sprite.color = tuning.baseColor
+            sprite.colorBlendFactor = 0.5
+            sprite.blendMode = .add
+            sprite.zRotation = CGFloat.random(in: 0...CGFloat.pi*2)
+            node = sprite
+            addChild(node)
+        case .sand:
+            let sprite = SKSpriteNode(imageNamed: "sand_texture.png")
+            sprite.size = CGSize(width: radius * 2, height: radius * 2)
+            let hueVar = CGFloat.random(in: -0.05...0.05)
+            sprite.color = tuning.baseColor.modified(hue: hueVar)
+            sprite.colorBlendFactor = 0.9
+            node = sprite
+            addChild(node)
         }
         
-        globule.position = point
-        setupPhysics(for: globule, radius: radius)
-        
-        if currentMaterial == .mercury {
-            metaballContainer.addChild(globule)
-        } else {
-            addChild(globule)
-        }
-
+        node.position = point
+        setupPhysics(for: node, radius: radius, tuning: tuning)
         
         if isTemporary {
-            globule.run(SKAction.sequence([
-                SKAction.wait(forDuration: isTemporary ? 4.0 : 1000),
-                SKAction.fadeOut(withDuration: 1.0),
+            node.run(SKAction.sequence([
+                SKAction.wait(forDuration: 3.5),
+                SKAction.fadeOut(withDuration: 0.5),
                 SKAction.removeFromParent()
             ]))
         }
     }
     
-    private func setupPhysics(for node: SKNode, radius: CGFloat) {
+    private func setupPhysics(for node: SKNode, radius: CGFloat, tuning: VibeMaterial.Tuning) {
         if currentMaterial == .glass {
-            // Box physics for shards
-            node.physicsBody = SKPhysicsBody(rectangleOf: CGSize(width: radius * 2, height: radius))
+            node.physicsBody = SKPhysicsBody(rectangleOf: CGSize(width: radius * 3, height: radius * 1.5))
         } else {
             node.physicsBody = SKPhysicsBody(circleOfRadius: radius)
         }
         
         node.physicsBody?.categoryBitMask = 1
         node.physicsBody?.contactTestBitMask = 1
-        // Performance optimization: prevent continuous precise collision checks for huge particle counts
         node.physicsBody?.usesPreciseCollisionDetection = false
         
-        switch currentMaterial {
-        case .mercury:
-            node.physicsBody?.restitution = 0.05 // Heavy, viscous, doesn't bounce much
-            node.physicsBody?.friction = 0.05    // Slippery
-            node.physicsBody?.linearDamping = 0.8 // Sludge-like drag
-            node.physicsBody?.mass = 1.0         // High density
-        case .glass:
-            node.physicsBody?.restitution = 0.4  // Crisp bounce
-            node.physicsBody?.friction = 0.3     // Somewhat sharp
-            node.physicsBody?.mass = 0.15        // Light shards
-        case .sand:
-            node.physicsBody?.restitution = 0.0  // No bounce
-            node.physicsBody?.friction = 1.0     // Very high friction to pile up
-            node.physicsBody?.linearDamping = 0.2
-            node.physicsBody?.mass = 0.05        // Very light
-        }
+        node.physicsBody?.mass = tuning.mass
+        node.physicsBody?.friction = tuning.friction
+        node.physicsBody?.restitution = tuning.restitution
+        node.physicsBody?.linearDamping = tuning.linearDamping
     }
-    
 }
 
-extension CGPoint {
-    func distance(to point: CGPoint) -> CGFloat {
-        return sqrt(pow(x - point.x, 2) + pow(y - point.y, 2))
+extension UIColor {
+    func modified(hue: CGFloat) -> UIColor {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        self.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        return UIColor(hue: max(0, min(1, h + hue)), saturation: s, brightness: b, alpha: a)
     }
 }
