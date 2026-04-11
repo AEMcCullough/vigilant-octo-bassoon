@@ -224,6 +224,12 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     }
 }
 
+extension CGPoint {
+    func distance(to point: CGPoint) -> CGFloat {
+        return sqrt(pow(x - point.x, 2) + pow(y - point.y, 2))
+    }
+}
+
 extension UIColor {
     func modified(hue: CGFloat) -> UIColor {
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
