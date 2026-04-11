@@ -51,30 +51,57 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     
-    // Mercury Cohesion & Slosh Audio (Phase 5)
+    // STABLE COHESION & KINETIC AUDIO (Phase 4)
     override func update(_ currentTime: TimeInterval) {
-        guard currentMaterial == .mercury else { return }
-        
         let tuning = currentMaterial.tuning
-        let nodes = metaballContainer.children
+        let nodes = currentMaterial == .mercury ? metaballContainer.children : self.children.filter { $0 is SKSpriteNode }
         
-        // Performance: Limit cohesion calculations to few nodes per frame or use spatial proximity
-        // For simplicity and fluid look, we'll apply a subtle global centripetal force to nearby clusters
-        for (index, node) in nodes.enumerated() {
-            guard index % 4 == 0 else { continue } // Optimization: partial updates
-            
-            // Mercury Cohesion: Seek nearby points
-            let searchRadius: CGFloat = tuning.mergeRadius
-            let neighbors = nodes.filter { $0 != node && $0.position.distance(to: node.position) < searchRadius }
-            
-            for neighbor in neighbors {
-                let dx = neighbor.position.x - node.position.x
-                let dy = neighbor.position.y - node.position.y
-                let dist = sqrt(dx*dx + dy*dy)
-                if dist > 0 {
-                    let force = (searchRadius - dist) / searchRadius * 2.0
-                    node.physicsBody?.applyForce(CGVector(dx: dx * force, dy: dy * force))
+        // 1. Mercury Stable Cohesion (Fluid Center-of-Mass Seeking)
+        if currentMaterial == .mercury {
+            for (index, node) in nodes.enumerated() {
+                guard index % 3 == 0 else { continue } // Optimization
+                
+                let searchRadius = tuning.mergeRadius
+                let influenceRect = CGRect(x: node.position.x - searchRadius, 
+                                           y: node.position.y - searchRadius, 
+                                           width: searchRadius * 2, 
+                                           height: searchRadius * 2)
+                
+                let neighbors = metaballContainer.nodes(in: influenceRect).filter { $0 != node }
+                
+                if !neighbors.isEmpty {
+                    var avgX: CGFloat = 0, avgY: CGFloat = 0
+                    for n in neighbors { avgX += n.position.x; avgY += n.position.y }
+                    let center = CGPoint(x: avgX / CGFloat(neighbors.count), y: avgY / CGFloat(neighbors.count))
+                    
+                    let dx = center.x - node.position.x
+                    let dy = center.y - node.position.y
+                    
+                    // Surface tension force toward center of cluster
+                    let forceStrength: CGFloat = 8.0
+                    node.physicsBody?.applyForce(CGVector(dx: dx * forceStrength, dy: dy * forceStrength))
                 }
+            }
+        }
+        
+        // 2. Kinetic-Sum Audio Intensity (Phase 5)
+        if !activeTouches.isEmpty {
+            var totalEnergy: CGFloat = 0
+            for node in nodes {
+                if let vb = node.physicsBody {
+                    totalEnergy += (abs(vb.velocity.dx) + abs(vb.velocity.dy))
+                }
+            }
+            
+            let threshold: CGFloat = currentMaterial == .mercury ? 500 : 1200
+            let rawIntensity = Float(min(totalEnergy / (threshold * CGFloat(max(1, nodes.count / 10))), 1.0))
+            let finalIntensity = rawIntensity * tuning.sloshAudioIntensity
+            
+            AudioManager.shared.updateLoop(named: tuning.loopName, intensity: finalIntensity)
+            
+            // Subtle persistent haptic for "Stirring" churn
+            if rawIntensity > 0.1 {
+                haptics?.playImpact(intensity: rawIntensity * 0.1, sharpness: tuning.hapticSharpness)
             }
         }
     }
@@ -87,7 +114,7 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         let spacing: CGFloat = tuning.sandboxFillDensity
         
         let cols = Int(size.width / spacing)
-        let rows = Int(size.height / spacing) // Adjustment #6: Fill the whole screen
+        let rows = Int(size.height / spacing) 
         
         for r in 0..<rows {
             for c in 0..<cols {
@@ -122,7 +149,6 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
                 dy: CGFloat(acceleration.y) * strength
             )
             
-            // Low-pass filter for premium tilt weight (Adjustment #1)
             self.lastGravity = CGVector(
                 dx: self.lastGravity.dx * (1.0 - smoothing) + targetGravity.dx * smoothing,
                 dy: self.lastGravity.dy * (1.0 - smoothing) + targetGravity.dy * smoothing
@@ -168,32 +194,42 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     
+    // AREA-OF-INFLUENCE TACTILE MANIPULATION (Phase 3)
     private func handleTouches(_ touches: Set<UITouch>, isMoving: Bool) {
-        var totalMotionIntensity: CGFloat = 0.0
         let tuning = currentMaterial.tuning
         
         for touch in touches {
             let location = touch.location(in: self)
             let previousLocation = activeTouches[touch] ?? location
-            let velocity = previousLocation.distance(to: location)
+            let velocity = CGVector(dx: location.x - previousLocation.x, dy: location.y - previousLocation.y)
+            let speed = previousLocation.distance(to: location)
+            
             activeTouches[touch] = location
             
-            if isMoving {
-                totalMotionIntensity += velocity
-            }
-            
             if isSandboxMode {
-                // Adjustment #5: Stronger Sandbox manipulation
+                // Area search instead of point search for "Raking/Stirring" feel
+                let radius = tuning.disturbanceRadius
+                let searchRect = CGRect(x: location.x - radius, y: location.y - radius, width: radius * 2, height: radius * 2)
+                
+                // Search both the scene and the metaball container
+                let nodesInScene = self.nodes(in: searchRect).filter { $0.physicsBody != nil }
+                let nodesInMetaball = metaballContainer.nodes(in: searchRect).filter { $0.physicsBody != nil }
+                let affectedNodes = nodesInScene + nodesInMetaball
+                
                 let multiplier = tuning.sandboxForceMultiplier
-                let affectedNodes = self.nodes(at: location).filter { $0.physicsBody != nil }
                 
                 for node in affectedNodes {
                     if let pb = node.physicsBody {
-                        let dx = (location.x - previousLocation.x) * multiplier
-                        let dy = (location.y - previousLocation.y) * multiplier
-                        pb.applyImpulse(CGVector(dx: dx, dy: dy))
+                        // Strong velocity injection for direct material displacement
+                        let dx = velocity.dx * multiplier
+                        let dy = velocity.dy * multiplier
                         
-                        if currentMaterial == .glass && velocity > 15.0 && CGFloat.random(in: 0...1) > 0.92 {
+                        // Apply as a combination of impulse and direct velocity for "swatting" feel
+                        pb.applyImpulse(CGVector(dx: dx * 0.5, dy: dy * 0.5))
+                        pb.velocity = CGVector(dx: pb.velocity.dx + dx * 0.2, dy: pb.velocity.dy + dy * 0.2)
+                        
+                        // Glass fracturing
+                        if currentMaterial == .glass && speed > 20.0 && CGFloat.random(in: 0...1) > 0.90 {
                             spawnGlobule(at: node.position, isTemporary: true)
                             haptics?.playPattern(named: "glass_crack")
                         }
@@ -202,15 +238,6 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
             } else if isMoving {
                 spawnGlobule(at: location, isTemporary: true)
             }
-        }
-        
-        if isMoving && totalMotionIntensity > 1.0 {
-            // Adjustment #2: Mercury audio multiplier
-            let volumeScale: Float = currentMaterial == .mercury ? tuning.sloshAudioIntensity : 1.0
-            let intensity = Float(min(totalMotionIntensity / 60.0, 1.0)) * volumeScale
-            
-            haptics?.playImpact(intensity: Float(intensity * 0.4), sharpness: tuning.hapticSharpness)
-            AudioManager.shared.updateLoop(named: tuning.loopName, intensity: intensity)
         }
     }
     
