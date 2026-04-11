@@ -13,7 +13,12 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     
     // Tilt smoothing parameters
     private var lastGravity: CGVector = .zero
-    private let tiltSmoothing: CGFloat = 0.2
+    
+    // Node Capping (Adjustment #3)
+    private var materialNodes: [SKNode] = []
+    
+    // Multi-touch tracking (Adjustment #4)
+    private var activeTouches: [UITouch: CGPoint] = [:]
     
     override func didMove(to view: SKView) {
         backgroundColor = .black
@@ -35,14 +40,40 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         let intensity = min(Float(velocity / 1200.0), 1.0)
         
         if intensity > 0.05 {
-            // Adaptive haptics based on material identity
             haptics?.playImpact(intensity: intensity * tuning.impactPower, sharpness: tuning.hapticSharpness)
             
-            // Subtle collision audio if it's a hard hit
             if intensity > 0.4 {
                 let name = currentMaterial == .glass ? "glass_impact" : (currentMaterial == .mercury ? "mercury_impact" : nil)
                 if let sound = name {
                     AudioManager.shared.playSound(named: sound, volume: intensity * 0.3)
+                }
+            }
+        }
+    }
+    
+    // Mercury Cohesion & Slosh Audio (Phase 5)
+    override func update(_ currentTime: TimeInterval) {
+        guard currentMaterial == .mercury else { return }
+        
+        let tuning = currentMaterial.tuning
+        let nodes = metaballContainer.children
+        
+        // Performance: Limit cohesion calculations to few nodes per frame or use spatial proximity
+        // For simplicity and fluid look, we'll apply a subtle global centripetal force to nearby clusters
+        for (index, node) in nodes.enumerated() {
+            guard index % 4 == 0 else { continue } // Optimization: partial updates
+            
+            // Mercury Cohesion: Seek nearby points
+            let searchRadius: CGFloat = tuning.mergeRadius
+            let neighbors = nodes.filter { $0 != node && $0.position.distance(to: node.position) < searchRadius }
+            
+            for neighbor in neighbors {
+                let dx = neighbor.position.x - node.position.x
+                let dy = neighbor.position.y - node.position.y
+                let dist = sqrt(dx*dx + dy*dy)
+                if dist > 0 {
+                    let force = (searchRadius - dist) / searchRadius * 2.0
+                    node.physicsBody?.applyForce(CGVector(dx: dx * force, dy: dy * force))
                 }
             }
         }
@@ -53,9 +84,10 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         isSandboxMode = true
         let size = self.size
         let tuning = currentMaterial.tuning
-        let spacing: CGFloat = currentMaterial == .sand ? 12 : 24
+        let spacing: CGFloat = tuning.sandboxFillDensity
+        
         let cols = Int(size.width / spacing)
-        let rows = Int(size.height / spacing / 2.2)
+        let rows = Int(size.height / spacing) // Adjustment #6: Fill the whole screen
         
         for r in 0..<rows {
             for c in 0..<cols {
@@ -69,6 +101,7 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     func reset() {
         removeAllChildren()
         metaballContainer.removeAllChildren()
+        materialNodes.removeAll()
         addChild(metaballContainer)
         setupContainment()
         isSandboxMode = false
@@ -80,17 +113,19 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         motionManager.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
             guard let self = self, let acceleration = data?.acceleration else { return }
             
-            let strength: CGFloat = self.currentMaterial == .mercury ? 75.0 : (self.currentMaterial == .sand ? 45.0 : 30.0)
+            let tuning = self.currentMaterial.tuning
+            let strength = tuning.tiltSensitivity
+            let smoothing = tuning.tiltSmoothing
             
             let targetGravity = CGVector(
                 dx: CGFloat(acceleration.x) * strength,
                 dy: CGFloat(acceleration.y) * strength
             )
             
-            // Low-pass filter for premium tilt stability
+            // Low-pass filter for premium tilt weight (Adjustment #1)
             self.lastGravity = CGVector(
-                dx: self.lastGravity.dx * (1.0 - self.tiltSmoothing) + targetGravity.dx * self.tiltSmoothing,
-                dy: self.lastGravity.dy * (1.0 - self.tiltSmoothing) + targetGravity.dy * self.tiltSmoothing
+                dx: self.lastGravity.dx * (1.0 - smoothing) + targetGravity.dx * smoothing,
+                dy: self.lastGravity.dy * (1.0 - smoothing) + targetGravity.dy * smoothing
             )
             
             self.physicsWorld.gravity = self.lastGravity
@@ -105,6 +140,13 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     }
     
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            activeTouches[touch] = touch.location(in: self)
+            
+            if !isSandboxMode {
+                spawnGlobule(at: touch.location(in: self), isTemporary: true)
+            }
+        }
         handleTouches(touches, isMoving: false)
     }
     
@@ -113,11 +155,17 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     }
     
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        AudioManager.shared.updateLoop(named: currentMaterial.tuning.loopName, intensity: 0.0)
+        for touch in touches { activeTouches.removeValue(forKey: touch) }
+        if activeTouches.isEmpty {
+            AudioManager.shared.updateLoop(named: currentMaterial.tuning.loopName, intensity: 0.0)
+        }
     }
     
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        AudioManager.shared.updateLoop(named: currentMaterial.tuning.loopName, intensity: 0.0)
+        for touch in touches { activeTouches.removeValue(forKey: touch) }
+        if activeTouches.isEmpty {
+            AudioManager.shared.updateLoop(named: currentMaterial.tuning.loopName, intensity: 0.0)
+        }
     }
     
     private func handleTouches(_ touches: Set<UITouch>, isMoving: Bool) {
@@ -126,39 +174,42 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         
         for touch in touches {
             let location = touch.location(in: self)
-            let previousLocation = touch.previousLocation(in: self)
+            let previousLocation = activeTouches[touch] ?? location
             let velocity = previousLocation.distance(to: location)
+            activeTouches[touch] = location
             
             if isMoving {
                 totalMotionIntensity += velocity
             }
             
             if isSandboxMode {
-                // PREMIUM STIRRING LOGIC: Apply forces to nearby nodes based on agitation
+                // Adjustment #5: Stronger Sandbox manipulation
+                let multiplier = tuning.sandboxForceMultiplier
                 let affectedNodes = self.nodes(at: location).filter { $0.physicsBody != nil }
                 
                 for node in affectedNodes {
                     if let pb = node.physicsBody {
-                        let dx = (location.x - previousLocation.x) * 4.0
-                        let dy = (location.y - previousLocation.y) * 4.0
+                        let dx = (location.x - previousLocation.x) * multiplier
+                        let dy = (location.y - previousLocation.y) * multiplier
                         pb.applyImpulse(CGVector(dx: dx, dy: dy))
                         
-                        // Glass fracturing: Small chance to spawn a tiny shard if agitated quickly
-                        if currentMaterial == .glass && velocity > 20.0 && CGFloat.random(in: 0...1) > 0.95 {
+                        if currentMaterial == .glass && velocity > 15.0 && CGFloat.random(in: 0...1) > 0.92 {
                             spawnGlobule(at: node.position, isTemporary: true)
                             haptics?.playPattern(named: "glass_crack")
                         }
                     }
                 }
-            } else {
-                // PAINTBRUSH MODE
+            } else if isMoving {
                 spawnGlobule(at: location, isTemporary: true)
             }
         }
         
         if isMoving && totalMotionIntensity > 1.0 {
-            let intensity = Float(min(totalMotionIntensity / 80.0, 1.0))
-            haptics?.playImpact(intensity: intensity * 0.4, sharpness: tuning.hapticSharpness)
+            // Adjustment #2: Mercury audio multiplier
+            let volumeScale: Float = currentMaterial == .mercury ? tuning.sloshAudioIntensity : 1.0
+            let intensity = Float(min(totalMotionIntensity / 60.0, 1.0)) * volumeScale
+            
+            haptics?.playImpact(intensity: Float(intensity * 0.4), sharpness: tuning.hapticSharpness)
             AudioManager.shared.updateLoop(named: tuning.loopName, intensity: intensity)
         }
     }
@@ -197,10 +248,15 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         node.position = point
         setupPhysics(for: node, radius: radius, tuning: tuning)
         
-        if isTemporary {
-            node.run(SKAction.sequence([
-                SKAction.wait(forDuration: 3.5),
-                SKAction.fadeOut(withDuration: 0.5),
+        materialNodes.append(node)
+        cleanupNodes(tuning: tuning)
+    }
+    
+    private func cleanupNodes(tuning: VibeMaterial.Tuning) {
+        while materialNodes.count > tuning.nodeCap {
+            let oldest = materialNodes.removeFirst()
+            oldest.run(SKAction.sequence([
+                SKAction.fadeOut(withDuration: tuning.fadeDuration),
                 SKAction.removeFromParent()
             ]))
         }
@@ -216,7 +272,6 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         node.physicsBody?.categoryBitMask = 1
         node.physicsBody?.contactTestBitMask = 1
         node.physicsBody?.usesPreciseCollisionDetection = false
-        
         node.physicsBody?.mass = tuning.mass
         node.physicsBody?.friction = tuning.friction
         node.physicsBody?.restitution = tuning.restitution
