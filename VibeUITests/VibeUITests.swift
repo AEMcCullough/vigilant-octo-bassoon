@@ -9,8 +9,8 @@ final class VibeUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        // Verify the VIBE title is visible
-        let vibeStaticText = app.staticTexts["VIBE"]
+        // Verify the VIBE 2.0 title is visible
+        let vibeStaticText = app.staticTexts["VIBE 2.0"]
         XCTAssertTrue(vibeStaticText.exists)
     }
     
