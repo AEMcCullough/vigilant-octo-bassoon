@@ -14,10 +14,10 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     // Tilt smoothing parameters
     private var lastGravity: CGVector = .zero
     
-    // Node Capping (Adjustment #3)
+    // Node Capping
     private var materialNodes: [SKNode] = []
     
-    // Multi-touch tracking (Adjustment #4)
+    // Multi-touch tracking
     private var activeTouches: [UITouch: CGPoint] = [:]
     
     override func didMove(to view: SKView) {
@@ -51,7 +51,7 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     
-    // STABLE COHESION & KINETIC AUDIO (Phase 4)
+    // STABLE COHESION & KINETIC AUDIO
     override func update(_ currentTime: TimeInterval) {
         let tuning = currentMaterial.tuning
         let nodes = currentMaterial == .mercury ? metaballContainer.children : self.children.filter { $0 is SKSpriteNode }
@@ -62,20 +62,16 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
                 guard index % 3 == 0 else { continue } // Optimization
                 
                 let searchRadius = tuning.mergeRadius
-                let influenceRect = CGRect(x: node.position.x - searchRadius, 
-                                           y: node.position.y - searchRadius, 
-                                           width: searchRadius * 2, 
-                                           height: searchRadius * 2)
-                
-                let neighbors = metaballContainer.nodes(in: influenceRect).filter { $0 != node }
+                // Radius search via distance filtering (Correcting Compilation Error)
+                let neighbors = nodes.filter { $0 != node && $0.position.distance(to: node.position) < searchRadius }
                 
                 if !neighbors.isEmpty {
                     var avgX: CGFloat = 0, avgY: CGFloat = 0
                     for n in neighbors { avgX += n.position.x; avgY += n.position.y }
                     let center = CGPoint(x: avgX / CGFloat(neighbors.count), y: avgY / CGFloat(neighbors.count))
                     
-                    let dx = center.x - node.position.x
-                    let dy = center.y - node.position.y
+                    let dx = (center.x - node.position.x)
+                    let dy = (center.y - node.position.y)
                     
                     // Surface tension force toward center of cluster
                     let forceStrength: CGFloat = 8.0
@@ -84,7 +80,7 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
             }
         }
         
-        // 2. Kinetic-Sum Audio Intensity (Phase 5)
+        // 2. Kinetic-Sum Audio Intensity
         if !activeTouches.isEmpty {
             var totalEnergy: CGFloat = 0
             for node in nodes {
@@ -99,7 +95,6 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
             
             AudioManager.shared.updateLoop(named: tuning.loopName, intensity: finalIntensity)
             
-            // Subtle persistent haptic for "Stirring" churn
             if rawIntensity > 0.1 {
                 haptics?.playImpact(intensity: rawIntensity * 0.1, sharpness: tuning.hapticSharpness)
             }
@@ -168,16 +163,15 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
             activeTouches[touch] = touch.location(in: self)
-            
             if !isSandboxMode {
                 spawnGlobule(at: touch.location(in: self), isTemporary: true)
             }
         }
-        handleTouches(touches, isMoving: false)
+        handleTouches(touches)
     }
     
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        handleTouches(touches, isMoving: true)
+        handleTouches(touches)
     }
     
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -194,9 +188,10 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     
-    // AREA-OF-INFLUENCE TACTILE MANIPULATION (Phase 3)
-    private func handleTouches(_ touches: Set<UITouch>, isMoving: Bool) {
+    // RADIUS-BASED TACTILE MANIPULATION (Fixed Compilation Error)
+    private func handleTouches(_ touches: Set<UITouch>) {
         let tuning = currentMaterial.tuning
+        let nodes = currentMaterial == .mercury ? metaballContainer.children : self.children.filter { $0 is SKSpriteNode }
         
         for touch in touches {
             let location = touch.location(in: self)
@@ -207,24 +202,17 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
             activeTouches[touch] = location
             
             if isSandboxMode {
-                // Area search instead of point search for "Raking/Stirring" feel
+                // Fixed: Explicit radius filtering instead of invalid nodes(in:) call
                 let radius = tuning.disturbanceRadius
-                let searchRect = CGRect(x: location.x - radius, y: location.y - radius, width: radius * 2, height: radius * 2)
-                
-                // Search both the scene and the metaball container
-                let nodesInScene = self.nodes(in: searchRect).filter { $0.physicsBody != nil }
-                let nodesInMetaball = metaballContainer.nodes(in: searchRect).filter { $0.physicsBody != nil }
-                let affectedNodes = nodesInScene + nodesInMetaball
+                let affectedNodes = nodes.filter { $0.position.distance(to: location) < radius }
                 
                 let multiplier = tuning.sandboxForceMultiplier
                 
                 for node in affectedNodes {
                     if let pb = node.physicsBody {
-                        // Strong velocity injection for direct material displacement
                         let dx = velocity.dx * multiplier
                         let dy = velocity.dy * multiplier
                         
-                        // Apply as a combination of impulse and direct velocity for "swatting" feel
                         pb.applyImpulse(CGVector(dx: dx * 0.5, dy: dy * 0.5))
                         pb.velocity = CGVector(dx: pb.velocity.dx + dx * 0.2, dy: pb.velocity.dy + dy * 0.2)
                         
@@ -235,7 +223,7 @@ class PhysicsScene: SKScene, SKPhysicsContactDelegate {
                         }
                     }
                 }
-            } else if isMoving {
+            } else if speed > 1.0 { // Moving in paint mode
                 spawnGlobule(at: location, isTemporary: true)
             }
         }
